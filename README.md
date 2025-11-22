@@ -1,5 +1,7 @@
 # Video Processing Pipeline (Docker) — Downscale / Transcription / Subtitles / Animal Detection / S3 + DynamoDB
 
+Architecture, des services isolés en Docker, une orchestration via docker-compose, la logique de traitement vidéo (downscale, extraction de langue/transcription, sous-titres, détection d’animaux), l’upload vers S3 et l’enregistrement des métadonnées dans DynamoDB
+
 Ce projet fournit une pipeline modulaire pour traiter des vidéos :
 - Downscale (MoviePy / ffmpeg)
 - Transcription (Whisper)
@@ -60,3 +62,4 @@ La réponse JSON contiendra `job_id` et les métadonnées stockées dans DynamoD
 - `S3 + DynamoDB`: stockage durable des assets + métadonnées (recherche, indexation).
 
 - ![Logo du projet](cloud.png)
+
