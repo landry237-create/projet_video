@@ -15,7 +15,10 @@ Chaque fonction est empaquetée comme un *worker* en conteneur. Un service `api`
 
 ## Pré-requis
 
-- Docker & Docker Compose
+- **Docker** & **Docker Compose**
+- * **Python 3.10+**
+* **AWS CLI** configuré
+* **Terraform CLI** (pour le déploiement Cloud)
 - Compte AWS + **S3 bucket** + **DynamoDB table** (nom mentionné dans `.env`)
 - Pour une meilleure performance :
   - GPU recommandé pour Whisper et YOLO ; sinon CPU acceptable mais plus lent.
@@ -62,4 +65,5 @@ La réponse JSON contiendra `job_id` et les métadonnées stockées dans DynamoD
 - `S3 + DynamoDB`: stockage durable des assets + métadonnées (recherche, indexation).
 
 - ![Logo du projet](cloud.png)
+
 
