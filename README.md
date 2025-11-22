@@ -46,6 +46,8 @@ La réponse JSON contiendra `job_id` et les métadonnées stockées dans DynamoD
 
 ## Architecture & choix techniques
 
+![Logo du projet](architecture-projet.jpeg)
+
 - `Isolation des tâches`: chaque worker est un service indépendant exposant une endpoint REST simple `/process`. Cela permet scalabilité horizontale (kubernetes / ecs).
 
 - `Stockage intermédiaire`: volume partagé `./data` monté sur tous les services  simple et efficace en local / VM.
@@ -54,4 +56,7 @@ La réponse JSON contiendra `job_id` et les métadonnées stockées dans DynamoD
 
 - `Detection d’objets`: Ultralytics YOLOv8 (poids `yolov8n` pour démarrer), filtrage sur labels animal courants.
 
+
 - `S3 + DynamoDB`: stockage durable des assets + métadonnées (recherche, indexation).
+
+- ![Logo du projet](cloud.png)
