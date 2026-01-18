@@ -1,5 +1,0 @@
-flask
-opencv-python-headless
-torch   # may be heavy; on CPU ok, but for GPU use appropriate image
-ultralytics
-numpy

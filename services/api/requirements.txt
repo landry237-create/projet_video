@@ -1,6 +1,0 @@
-fastapi
-uvicorn[standard]
-requests
-boto3
-python-multipart
-pydantic
