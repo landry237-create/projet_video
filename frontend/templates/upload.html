@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload - VideoAI</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="container">
+            <h1>🎬 VideoAI Cloud</h1>
+            <div class="nav-links">
+                <a href="/">Accueil</a>
+                <a href="/dashboard">Dashboard</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container">
+        <div class="upload-section">
+            <h2>📤 Upload Vidéo</h2>
+            
+            <!-- Upload Area - ZONE PRINCIPALE -->
+            <div class="upload-area" id="uploadArea">
+                <p class="upload-icon">📁</p>
+                <p class="upload-title">Glissez votre vidéo ici</p>
+                <p class="upload-subtitle">ou cliquez pour parcourir</p>
+                <p class="upload-info">MP4, AVI, MOV, MKV, WebM (max 500MB)</p>
+                <input type="file" id="fileInput" accept="video/*">
+            </div>
+
+            <!-- Progress Section -->
+            <div class="progress-section" id="progressSection">
+                <div class="progress-header">
+                    <h3>⏳ Traitement en cours...</h3>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <p class="progress-step" id="progressStep">En attente...</p>
+                <p class="progress-percentage" id="progressPercentage">0%</p>
+            </div>
+
+            <!-- Messages -->
+            <div class="alert alert-success" id="successAlert">
+                ✅ Traitement terminé! Redirection vers le dashboard...
+            </div>
+            <div class="alert alert-error" id="errorAlert">
+                <span id="errorText">❌ Une erreur s'est produite</span>
+            </div>
+
+            <!-- Navigation Buttons -->
+            <div class="button-group">
+                <button class="btn btn-secondary" onclick="goHome()">← Accueil</button>
+                <button class="btn btn-primary" onclick="goDashboard()">Dashboard →</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

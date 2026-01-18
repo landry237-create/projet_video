@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Processing Platform</title>
+    <link rel="stylesheet" href="../static/css/style.css">
+</head>
+
+<body>
+
+<header>
+    <div class="logo">VideoAI</div>
+    <nav>
+        <a href="index.html">Accueil</a>
+        <a href="dashboard.html">Dashboard</a>
+    </nav>
+</header>
+
+<section class="hero">
+    <div class="hero-content">
+        <h1>Plateforme de Traitement Vidéo</h1>
+        <p>Downscale · Détection de langue · Sous-titres · Détection d'animaux</p>
+
+        <div class="upload-box">
+            <input type="file" id="videoInput" accept="video/*">
+            <button id="uploadBtn">Analyser la vidéo</button>
+        </div>
+
+        <div id="result"></div>
+    </div>
+</section>
+
+<script>
+    document.getElementById("uploadBtn").onclick = async function () {
+        const file = document.getElementById("videoInput").files[0];
+        if(!file){
+            alert("Veuillez sélectionner un fichier vidéo.");
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append("file", file);
+
+        document.getElementById("result").innerHTML = "<p>Analyse en cours...</p>";
+
+        const res = await fetch("/video/process", {
+            method: "POST",
+            body: formData
+        });
+
+        const data = await res.json();
+
+        document.getElementById("result").innerHTML =
+            `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+    }
+</script>
+
+</body>
+</html>
