@@ -1,0 +1,239 @@
+version: '3.9'
+
+services:
+  # ============================================
+  # 📺 API PRINCIPALE - Orchestration
+  # ============================================
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: video-api
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=sqlite:///./database/local_db.json
+      - UPLOADS_DIR=/app/data/uploads
+      - DATA_DIR=/app/data
+      - MAX_FILE_SIZE=5000000000  # 5GB
+      - REDIS_URL=redis://redis:6379
+      # URLs des services microservices
+      - ANIMAL_DETECTOR_URL=http://animal-detector:8001
+      - LANGUAGE_DETECTOR_URL=http://language-detector:8002
+      - DOWNSCALE_URL=http://downscale:8003
+      - SUBTITLES_URL=http://subtitles:8004
+      - VIDEO_MERGER_URL=http://video-merger:8005
+    volumes:
+      - ./backend:/app/backend
+      - ./frontend:/app/frontend
+      - ./database:/app/database
+      - shared_data:/app/data
+    depends_on:
+      - redis
+      - animal-detector
+      - language-detector
+      - downscale
+      - subtitles
+      - video-merger
+    networks:
+      - video-pipeline
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # ============================================
+  # 🐾 ANIMAL DETECTOR - YOLO11
+  # ============================================
+  animal-detector:
+    build:
+      context: .
+      dockerfile: Dockerfile.animal-detector
+    container_name: animal-detector
+    ports:
+      - "8001:8001"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PORT=8001
+      - DEVICE=cpu
+      # GPU: change DEVICE=cuda pour utiliser GPU
+    volumes:
+      - shared_data:/app/data
+      - ./backend/services/animal:/app/services/animal
+      - ./yolov8n.pt:/app/models/yolov8n.pt:ro
+    networks:
+      - video-pipeline
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ============================================
+  # 🎙️ LANGUAGE DETECTOR - Speech Recognition
+  # ============================================
+  language-detector:
+    build:
+      context: .
+      dockerfile: Dockerfile.language-detector
+    container_name: language-detector
+    ports:
+      - "8002:8002"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PORT=8002
+      - DEVICE=cpu
+    volumes:
+      - shared_data:/app/data
+      - ./backend/services/language:/app/services/language
+    networks:
+      - video-pipeline
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ============================================
+  # 📹 DOWNSCALE - Video Compression (FFmpeg)
+  # ============================================
+  downscale:
+    build:
+      context: .
+      dockerfile: Dockerfile.downscale
+    container_name: downscale
+    ports:
+      - "8003:8003"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PORT=8003
+      - FFMPEG_PATH=/usr/bin/ffmpeg
+    volumes:
+      - shared_data:/app/data
+      - ./backend/services/downscales:/app/services/downscales
+    networks:
+      - video-pipeline
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ============================================
+  # 📝 SUBTITLES - Whisper + VTT Generation
+  # ============================================
+  subtitles:
+    build:
+      context: .
+      dockerfile: Dockerfile.subtitles
+    container_name: subtitles
+    ports:
+      - "8004:8004"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PORT=8004
+      - DEVICE=cpu
+      - FFMPEG_PATH=/usr/bin/ffmpeg
+    volumes:
+      - shared_data:/app/data
+      - ./backend/services/subtitles:/app/services/subtitles
+    networks:
+      - video-pipeline
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ============================================
+  # 🎬 VIDEO MERGER - Fusionne vidéo + sous-titres
+  # ============================================
+  video-merger:
+    build:
+      context: .
+      dockerfile: Dockerfile.video-merger
+    container_name: video-merger
+    ports:
+      - "8005:8005"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PORT=8005
+      - FFMPEG_PATH=/usr/bin/ffmpeg
+      - UPLOADS_DIR=/app/uploads
+      - OUTPUTS_DIR=/app/outputs
+    volumes:
+      - shared_data:/app/data
+      - merger_outputs:/app/outputs
+      - ./backend/services/video_merger:/app
+    networks:
+      - video-pipeline
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ============================================
+  # 🔴 REDIS - Cache & Queue Management
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: redis-cache
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - video-pipeline
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
+  # ============================================
+  # 🔵 NGINX - Reverse Proxy & Load Balancer
+  # ============================================
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - api
+    networks:
+      - video-pipeline
+    restart: unless-stopped
+
+# ============================================
+# NETWORKS
+# ============================================
+networks:
+  video-pipeline:
+    driver: bridge
+
+# ============================================
+# VOLUMES
+# ============================================
+volumes:
+  shared_data:
+    driver: local
+  redis_data:
+    driver: local
+  merger_outputs:
+    driver: local

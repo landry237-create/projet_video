@@ -1,0 +1,89 @@
+# Stage 1: Builder - Préparation des dépendances
+FROM python:3.11-slim as builder
+
+WORKDIR /build
+
+# Installer les dépendances système nécessaires pour compilation
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copier requirements et installer les dépendances Python
+COPY backend/services/subtitles/requirements.txt .
+RUN pip install --user --no-cache-dir -r requirements.txt
+
+# ============================================
+# Stage 2: Runtime - Image finale optimisée
+# ============================================
+FROM jrottenberg/ffmpeg:6.0-ubuntu2204
+
+# Métadonnées
+LABEL maintainer="DevOps Team"
+LABEL description="Subtitle Generation Service - Faster-Whisper based"
+LABEL version="1.0.0"
+
+# Variables d'environnement
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    FFMPEG_PATH=/usr/bin/ffmpeg \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    DEVICE=cpu
+
+WORKDIR /app
+
+# Installer Python et dépendances système pour audio/ML
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3-pip \
+    libsndfile1 \
+    libgomp1 \
+    libopencore-amrnb0 \
+    libopencore-amrwb0 \
+    libopus0 \
+    libvorbis0a \
+    libvorbisenc2 \
+    libflac8 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copier les dépendances Python depuis le builder
+COPY --from=builder /root/.local /root/.local
+
+# Ajouter local bin au PATH
+ENV PATH=/root/.local/bin:$PATH
+
+# Créer structure des répertoires
+RUN mkdir -p /app/data/temp \
+    && mkdir -p /app/uploads \
+    && mkdir -p /app/outputs \
+    && mkdir -p /app/subtitles \
+    && mkdir -p /app/logs \
+    && mkdir -p /app/backend/services/subtitles \
+    && mkdir -p /app/backend/services \
+    && mkdir -p /app/backend/app
+
+# Copier le code source
+COPY backend/ /app/backend/
+
+# Pré-télécharger les modèles Faster-Whisper (optionnel)
+# Les modèles sont téléchargés automatiquement à la première utilisation
+# Décommenter pour inclure dans l'image (~2-4GB selon la taille)
+# RUN python3 -c "from faster_whisper import WhisperModel; WhisperModel('small')"
+
+# Créer utilisateur non-root pour sécurité
+RUN useradd -m -u 1000 processor && chown -R processor:processor /app
+USER processor
+
+# Health check - Vérifier FFmpeg, Python et imports
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD ffmpeg -version >/dev/null 2>&1 && \
+    python3 -c "import faster_whisper, pydub, librosa, soundfile" >/dev/null 2>&1 || exit 1
+
+# Exposer le port FastAPI
+EXPOSE 8000
+
+# Point d'entrée
+ENTRYPOINT ["python3"]
+CMD ["-m", "uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
