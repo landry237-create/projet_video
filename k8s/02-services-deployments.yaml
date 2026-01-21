@@ -1,0 +1,471 @@
+---
+# ============================================
+# REDIS - Cache & Message Queue
+# ============================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: video-pipeline
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+  type: ClusterIP
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: video-pipeline
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+        livenessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: redis-data
+        persistentVolumeClaim:
+          claimName: redis-data-pvc
+
+---
+# ============================================
+# ANIMAL DETECTOR - YOLO11
+# ============================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: animal-detector
+  namespace: video-pipeline
+spec:
+  selector:
+    app: animal-detector
+  ports:
+    - port: 8001
+      targetPort: 8001
+  type: ClusterIP
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: animal-detector
+  namespace: video-pipeline
+  labels:
+    app: animal-detector
+    version: "1.0"
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: animal-detector
+  template:
+    metadata:
+      labels:
+        app: animal-detector
+    spec:
+      containers:
+      - name: animal-detector
+        image: video-pipeline/animal-detector:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8001
+        env:
+        - name: PORT
+          value: "8001"
+        - name: PYTHONUNBUFFERED
+          valueFrom:
+            configMapKeyRef:
+              name: video-pipeline-config
+              key: PYTHONUNBUFFERED
+        - name: DEVICE
+          valueFrom:
+            configMapKeyRef:
+              name: video-pipeline-config
+              key: DEVICE
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+        volumeMounts:
+        - name: shared-data
+          mountPath: /app/data
+        - name: models
+          mountPath: /app/models
+          readOnly: true
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8001
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8001
+          initialDelaySeconds: 10
+          periodSeconds: 10
+      volumes:
+      - name: shared-data
+        persistentVolumeClaim:
+          claimName: shared-data-pvc
+      - name: models
+        emptyDir: {}
+
+---
+# ============================================
+# LANGUAGE DETECTOR - Speech Recognition
+# ============================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: language-detector
+  namespace: video-pipeline
+spec:
+  selector:
+    app: language-detector
+  ports:
+    - port: 8002
+      targetPort: 8002
+  type: ClusterIP
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: language-detector
+  namespace: video-pipeline
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: language-detector
+  template:
+    metadata:
+      labels:
+        app: language-detector
+    spec:
+      containers:
+      - name: language-detector
+        image: video-pipeline/language-detector:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8002
+        env:
+        - name: PORT
+          value: "8002"
+        - name: PYTHONUNBUFFERED
+          valueFrom:
+            configMapKeyRef:
+              name: video-pipeline-config
+              key: PYTHONUNBUFFERED
+        - name: DEVICE
+          valueFrom:
+            configMapKeyRef:
+              name: video-pipeline-config
+              key: DEVICE
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+        volumeMounts:
+        - name: shared-data
+          mountPath: /app/data
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 10
+          periodSeconds: 10
+      volumes:
+      - name: shared-data
+        persistentVolumeClaim:
+          claimName: shared-data-pvc
+
+---
+# ============================================
+# DOWNSCALE - Video Compression (FFmpeg)
+# ============================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: downscale
+  namespace: video-pipeline
+spec:
+  selector:
+    app: downscale
+  ports:
+    - port: 8003
+      targetPort: 8003
+  type: ClusterIP
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: downscale
+  namespace: video-pipeline
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: downscale
+  template:
+    metadata:
+      labels:
+        app: downscale
+    spec:
+      containers:
+      - name: downscale
+        image: video-pipeline/downscale:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8003
+        env:
+        - name: PORT
+          value: "8003"
+        - name: PYTHONUNBUFFERED
+          valueFrom:
+            configMapKeyRef:
+              name: video-pipeline-config
+              key: PYTHONUNBUFFERED
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        volumeMounts:
+        - name: shared-data
+          mountPath: /app/data
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8003
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8003
+          initialDelaySeconds: 10
+          periodSeconds: 10
+      volumes:
+      - name: shared-data
+        persistentVolumeClaim:
+          claimName: shared-data-pvc
+
+---
+# ============================================
+# SUBTITLES - Whisper + VTT Generation
+# ============================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: subtitles
+  namespace: video-pipeline
+spec:
+  selector:
+    app: subtitles
+  ports:
+    - port: 8004
+      targetPort: 8004
+  type: ClusterIP
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: subtitles
+  namespace: video-pipeline
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: subtitles
+  template:
+    metadata:
+      labels:
+        app: subtitles
+    spec:
+      containers:
+      - name: subtitles
+        image: video-pipeline/subtitles:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8004
+        env:
+        - name: PORT
+          value: "8004"
+        - name: PYTHONUNBUFFERED
+          valueFrom:
+            configMapKeyRef:
+              name: video-pipeline-config
+              key: PYTHONUNBUFFERED
+        - name: DEVICE
+          valueFrom:
+            configMapKeyRef:
+              name: video-pipeline-config
+              key: DEVICE
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+        volumeMounts:
+        - name: shared-data
+          mountPath: /app/data
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8004
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8004
+          initialDelaySeconds: 10
+          periodSeconds: 10
+      volumes:
+      - name: shared-data
+        persistentVolumeClaim:
+          claimName: shared-data-pvc
+
+---
+# ============================================
+# VIDEO MERGER - Fusionne vidéo + sous-titres
+# ============================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: video-merger
+  namespace: video-pipeline
+spec:
+  selector:
+    app: video-merger
+  ports:
+    - port: 8005
+      targetPort: 8005
+  type: ClusterIP
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: video-merger
+  namespace: video-pipeline
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: video-merger
+  template:
+    metadata:
+      labels:
+        app: video-merger
+    spec:
+      containers:
+      - name: video-merger
+        image: video-pipeline/video-merger:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8005
+        env:
+        - name: PORT
+          value: "8005"
+        - name: PYTHONUNBUFFERED
+          valueFrom:
+            configMapKeyRef:
+              name: video-pipeline-config
+              key: PYTHONUNBUFFERED
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        volumeMounts:
+        - name: shared-data
+          mountPath: /app/data
+        - name: outputs
+          mountPath: /app/outputs
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8005
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8005
+          initialDelaySeconds: 10
+          periodSeconds: 10
+      volumes:
+      - name: shared-data
+        persistentVolumeClaim:
+          claimName: shared-data-pvc
+      - name: outputs
+        persistentVolumeClaim:
+          claimName: merger-outputs-pvc

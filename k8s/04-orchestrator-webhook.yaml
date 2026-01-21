@@ -1,0 +1,307 @@
+---
+# ============================================
+# WEBHOOK TRIGGER SERVICE
+# ============================================
+# Ce service gère l'orchestration de la pipeline lors d'un upload vidéo
+#
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pipeline-orchestrator-script
+  namespace: video-pipeline
+data:
+  orchestrate.py: |
+    """
+    Orchestrateur - Déclenche la pipeline Kubernetes lors d'un upload vidéo
+    Utilise Redis pour tracker l'état des tâches
+    """
+    import os
+    import json
+    import logging
+    from fastapi import FastAPI, HTTPException
+    from pydantic import BaseModel
+    from typing import Optional
+    import redis
+    import uuid
+    from datetime import datetime
+    from enum import Enum
+    
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+    
+    app = FastAPI(title="Pipeline Orchestrator")
+    
+    # Redis
+    redis_client = redis.Redis(host=os.getenv("REDIS_HOST", "redis"), 
+                               port=int(os.getenv("REDIS_PORT", 6379)),
+                               decode_responses=True)
+    
+    class PipelineStatus(str, Enum):
+        PENDING = "pending"
+        DOWNSCALING = "downscaling"
+        DETECTING_ANIMALS = "detecting_animals"
+        DETECTING_LANGUAGE = "detecting_language"
+        GENERATING_SUBTITLES = "generating_subtitles"
+        MERGING = "merging"
+        COMPLETED = "completed"
+        FAILED = "failed"
+    
+    class OrchestrationRequest(BaseModel):
+        session_id: str
+        video_id: str
+        video_path: str
+        metadata: Optional[dict] = {}
+    
+    @app.post("/orchestrate")
+    async def orchestrate_pipeline(request: OrchestrationRequest):
+        """
+        Lance l'orchestration complète de la pipeline
+        Séquence:
+        1. Downscale → 2. Language + Animal Detection (parallèle) → 3. Subtitles → 4. Merger
+        """
+        try:
+            logger.info(f"🚀 Pipeline orchestration lancée: {request.session_id}")
+            
+            # Créer une tâche principale
+            task_id = str(uuid.uuid4())[:8]
+            task_data = {
+                "task_id": task_id,
+                "session_id": request.session_id,
+                "video_id": request.video_id,
+                "video_path": request.video_path,
+                "status": PipelineStatus.PENDING,
+                "started_at": datetime.now().isoformat(),
+                "stages": {
+                    "downscale": {"status": "pending", "progress": 0},
+                    "animal_detection": {"status": "pending", "progress": 0},
+                    "language_detection": {"status": "pending", "progress": 0},
+                    "subtitles": {"status": "pending", "progress": 0},
+                    "merger": {"status": "pending", "progress": 0}
+                },
+                "metadata": request.metadata
+            }
+            
+            # Sauvegarder la tâche en Redis
+            redis_client.set(f"pipeline:task:{task_id}", json.dumps(task_data), ex=86400)
+            
+            # Phase 1: Downscale
+            logger.info(f"📹 Phase 1: Downscale")
+            downscale_result = await trigger_downscale(request.video_path, task_id)
+            
+            if downscale_result.get("status") != "success":
+                raise Exception(f"Downscale failed: {downscale_result}")
+            
+            # Phase 2: Language + Animal Detection (parallèle)
+            logger.info(f"🔄 Phase 2: Language + Animal Detection (parallèle)")
+            downscaled_video = downscale_result.get("downscaled_path")
+            
+            # Appels parallèles
+            animal_result = await trigger_animal_detection(downscaled_video, task_id)
+            language_result = await trigger_language_detection(downscaled_video, task_id)
+            
+            # Phase 3: Génération sous-titres
+            logger.info(f"📝 Phase 3: Subtitles Generation")
+            subtitles_result = await trigger_subtitles(downscaled_video, task_id)
+            
+            if subtitles_result.get("status") != "success":
+                raise Exception(f"Subtitles generation failed: {subtitles_result}")
+            
+            # Phase 4: Video Merger
+            logger.info(f"🎬 Phase 4: Video Merger")
+            vtt_file = subtitles_result.get("vtt_path")
+            merger_result = await trigger_merger(downscaled_video, vtt_file, task_id)
+            
+            if merger_result.get("status") != "success":
+                raise Exception(f"Video merger failed: {merger_result}")
+            
+            # Marquer comme complété
+            task_data["status"] = PipelineStatus.COMPLETED
+            task_data["completed_at"] = datetime.now().isoformat()
+            task_data["result"] = {
+                "final_video": merger_result.get("output_path"),
+                "animals_detected": animal_result.get("animals"),
+                "language": language_result.get("language"),
+                "subtitles": vtt_file
+            }
+            
+            redis_client.set(f"pipeline:task:{task_id}", json.dumps(task_data), ex=86400)
+            
+            logger.info(f"✅ Pipeline complète: {task_id}")
+            
+            return {
+                "task_id": task_id,
+                "status": "completed",
+                "result": task_data["result"]
+            }
+        
+        except Exception as e:
+            logger.error(f"❌ Pipeline failed: {e}")
+            task_data["status"] = PipelineStatus.FAILED
+            task_data["error"] = str(e)
+            redis_client.set(f"pipeline:task:{task_id}", json.dumps(task_data), ex=86400)
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.get("/status/{task_id}")
+    async def get_task_status(task_id: str):
+        """Récupérer le statut d'une tâche"""
+        task_data = redis_client.get(f"pipeline:task:{task_id}")
+        if not task_data:
+            raise HTTPException(status_code=404, detail="Task not found")
+        return json.loads(task_data)
+    
+    async def trigger_downscale(video_path: str, task_id: str):
+        """Déclencher le downscale"""
+        import httpx
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    "http://downscale:8003/downscale",
+                    json={"video_path": video_path, "task_id": task_id},
+                    timeout=1800.0
+                )
+                return response.json()
+        except Exception as e:
+            logger.error(f"Downscale error: {e}")
+            return {"status": "error", "error": str(e)}
+    
+    async def trigger_animal_detection(video_path: str, task_id: str):
+        """Déclencher la détection d'animaux"""
+        import httpx
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    "http://animal-detector:8001/detect",
+                    json={"video_path": video_path, "task_id": task_id},
+                    timeout=1800.0
+                )
+                return response.json()
+        except Exception as e:
+            logger.error(f"Animal detection error: {e}")
+            return {"status": "error", "error": str(e)}
+    
+    async def trigger_language_detection(video_path: str, task_id: str):
+        """Déclencher la détection de langue"""
+        import httpx
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    "http://language-detector:8002/detect",
+                    json={"video_path": video_path, "task_id": task_id},
+                    timeout=1800.0
+                )
+                return response.json()
+        except Exception as e:
+            logger.error(f"Language detection error: {e}")
+            return {"status": "error", "error": str(e)}
+    
+    async def trigger_subtitles(video_path: str, task_id: str):
+        """Déclencher la génération de sous-titres"""
+        import httpx
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    "http://subtitles:8004/generate",
+                    json={"video_path": video_path, "task_id": task_id},
+                    timeout=3600.0
+                )
+                return response.json()
+        except Exception as e:
+            logger.error(f"Subtitles generation error: {e}")
+            return {"status": "error", "error": str(e)}
+    
+    async def trigger_merger(video_path: str, subtitles_path: str, task_id: str):
+        """Déclencher la fusion vidéo + sous-titres"""
+        import httpx
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    "http://video-merger:8005/merge",
+                    json={
+                        "video_path": video_path,
+                        "subtitles_path": subtitles_path,
+                        "task_id": task_id
+                    },
+                    timeout=3600.0
+                )
+                return response.json()
+        except Exception as e:
+            logger.error(f"Video merger error: {e}")
+            return {"status": "error", "error": str(e)}
+    
+    @app.get("/health")
+    async def health():
+        return {"status": "healthy"}
+    
+    if __name__ == "__main__":
+        import uvicorn
+        uvicorn.run(app, host="0.0.0.0", port=8006)
+
+---
+# ============================================
+# ORCHESTRATOR DEPLOYMENT
+# ============================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: orchestrator
+  namespace: video-pipeline
+spec:
+  selector:
+    app: orchestrator
+  ports:
+    - port: 8006
+      targetPort: 8006
+  type: ClusterIP
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestrator
+  namespace: video-pipeline
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: orchestrator
+  template:
+    metadata:
+      labels:
+        app: orchestrator
+    spec:
+      containers:
+      - name: orchestrator
+        image: python:3.11-slim
+        ports:
+        - containerPort: 8006
+        env:
+        - name: REDIS_HOST
+          value: "redis"
+        - name: REDIS_PORT
+          value: "6379"
+        volumeMounts:
+        - name: orchestrator-script
+          mountPath: /app
+        command: ["bash", "-c"]
+        args:
+        - |
+          pip install -q fastapi uvicorn redis httpx &&
+          cd /app &&
+          python -m uvicorn orchestrate:app --host 0.0.0.0 --port 8006
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8006
+          initialDelaySeconds: 10
+          periodSeconds: 10
+      volumes:
+      - name: orchestrator-script
+        configMap:
+          name: pipeline-orchestrator-script
