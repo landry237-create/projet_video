@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+langdetect
+speechrecognition
+moviepy
+ultralytics
+jinja2
+python-multipart
+pydantic
+whisper
