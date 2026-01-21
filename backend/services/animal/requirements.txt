@@ -1,0 +1,29 @@
+# Core dependencies pour YOLO11 Animal Detector
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+python-multipart==0.0.6
+
+# Computer Vision & ML
+opencv-python==4.8.1.78
+ultralytics==8.0.224
+torch==2.1.1
+torchvision==0.16.1
+numpy==1.24.3
+
+# Video processing
+moviepy==1.0.3
+Pillow==10.1.0
+
+# Language & Speech
+langdetect==1.0.9
+SpeechRecognition==3.10.0
+openai-whisper==20231117
+
+# Utilities
+python-dotenv==1.0.0
+Jinja2==3.1.2
+requests==2.31.0
+
+# Monitoring & Logging
+python-json-logger==2.0.7
