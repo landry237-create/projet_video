@@ -652,7 +652,7 @@ docker exec video-merger ls -lah /app/data/
 **Version**: 1.0.0  
 **Date**: Janvier 2026
 
-**mail**: [landrynoumbissi23@gmail.com]("mailto:landrynoumbissi23@gmail.com?subject=je vous contacte depuis le GitHub du Projet vidéo DevOps&body=Bonjour Monsieur Landry Noumbissi")
+**mail**: [landrynoumbissi23@gmail.com](mailto:landrynoumbissi23@gmail.com)
 
 **Prêt à traiter vos vidéos! 🚀**
 
@@ -672,6 +672,7 @@ docker exec video-merger ls -lah /app/data/
 - `S3 + DynamoDB`: stockage durable des assets + métadonnées (recherche, indexation).
 
 - ![Logo du projet](cloud.png)
+
 
 
 
