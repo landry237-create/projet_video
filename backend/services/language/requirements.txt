@@ -1,0 +1,27 @@
+# Core dependencies pour Language Detection Service
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+python-multipart==0.0.6
+
+# Speech & Language Processing
+SpeechRecognition==3.10.0
+pydub==0.25.1
+langdetect==1.0.9
+openai-whisper==20231117
+
+# Audio processing
+librosa==0.10.0
+soundfile==0.12.1
+
+# ML & Utilities
+numpy==1.24.3
+scipy==1.11.4
+
+# Utilities
+python-dotenv==1.0.0
+Jinja2==3.1.2
+requests==2.31.0
+
+# Monitoring & Logging
+python-json-logger==2.0.7
